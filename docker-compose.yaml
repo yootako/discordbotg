@@ -3,4 +3,11 @@ services:
     build: .
     container_name: discord-bot
     restart: always
-    
+    volumes:
+      - .:/app
+
+  voicebox:
+    image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest
+    container_name: voicebox
+    ports:
+      - "50021:50021"
