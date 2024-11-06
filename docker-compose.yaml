@@ -1,0 +1,7 @@
+services:
+  bot:
+    build: .
+    container_name: discord-bot
+    restart: always
+    environment:
+      - DISCORD_TOKEN=YOUR_DISCORD_TOKEN
