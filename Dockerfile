@@ -1,17 +1,23 @@
-from python:3.11
+FROM python:3.12
+
+# Install ffmpeg curl
+RUN apt-get update && apt-get install -y ffmpeg curl
 
 # Set the working directory
 WORKDIR /app
 
-# Copy the current directory contents into the container at /app
-COPY ./requirements.txt /app/requirements.txt
+# Install poetry
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="/root/.local/bin:/root/.poetry/bin:$PATH"
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy the poetry files
+COPY pyproject.toml poetry.lock /app/
 
-# Install ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg
+# Configure poetry
+RUN poetry config virtualenvs.create false
+RUN poetry install
+
 
 # Create entrypoint
-ENTRYPOINT ["python3", "src/main.py"]
+CMD ["poetry", "run", "python3", "src/main.py"]
 

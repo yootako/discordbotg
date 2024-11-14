@@ -5,6 +5,8 @@ services:
     restart: always
     volumes:
       - .:/app
+    depends_on:
+      - voicebox
 
   voicebox:
     image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest

@@ -27,6 +27,39 @@ ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ''
 
+# elif message.content.startswith("!play "):
+#         if message.guild.voice_client is None:
+#             await message.channel.send("接続していません。")
+#             return
+#         # 再生中の場合は再生しない
+#         if message.guild.voice_client.is_playing():
+#             await message.channel.send("再生中です。")
+#             return
+
+#         url = message.content[6:]
+#         # youtubeから音楽をダウンロードする
+#         player = await YTDLSource.from_url(url, loop=client.loop)
+
+#         # 再生する
+#         await message.guild.voice_client.play(player)
+
+#         await message.channel.send('{} を再生します。'.format(player.title))
+
+#     elif message.content == "!stop":
+#         if message.guild.voice_client is None:
+#             await message.channel.send("接続していません。")
+#             return
+
+#         # 再生中ではない場合は実行しない
+#         if not message.guild.voice_client.is_playing():
+#             await message.channel.send("再生していません。")
+#             return
+
+#         message.guild.voice_client.stop()
+
+#         await message.channel.send("ストップしました。")
+
+
 class YTDLSource(discord.PCMVolumeTransformer):
     def __init__(self, source, *, data, volume=0.5):
         super().__init__(source, volume)
