@@ -4,8 +4,10 @@ import discord
 import discord.types
 import config
 from io import BytesIO
-from typing import Dict, TypedDict
-
+from typing import Dict, TypedDict, List, Optional, Tuple, Deque
+import re 
+import asyncio
+from collections import deque
 from ytdl_wrapper import YTDLSource
 # from ytdl_wrapper import ffmpeg_options
 from voicebox import VoiceBox
@@ -16,6 +18,11 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 tree = discord.app_commands.CommandTree(client)
 voicevox = VoiceBox()
+
+# 各サーバーごとのメッセージキューを管理するためのDict
+voice_queues: Dict[int, Deque[Tuple[str, str, float]]] = {}
+# キュー処理中かどうかを示すフラグ
+processing_queues: Dict[int, bool] = {}
 
 
 # 簡易DBとしてのDict
@@ -185,7 +192,8 @@ async def set_voice_style(ctx: discord.Interaction, style: str):
         dict_db["user_settings"][ctx.user.id]["speaker_name"] = "ずんだもん"
         
     # メッセージを送信
-    await ctx.response.send_message(f"声色を {dict_db["user_settings"][ctx.user.id]["speaker_name"]}({voicevox.get_speaker_style_name(speaker_id)}) に設定しました。")
+    await ctx.response.send_message(f"声色を {dict_db['user_settings'][ctx.user.id]['speaker_name']}({voicevox.get_speaker_style_name(speaker_id)}) に設定しました。")
+    
 
 # /set_speed <速度>
 @tree.command(
@@ -205,42 +213,106 @@ async def set_speed(ctx: discord.Interaction, speed: discord.app_commands.Range[
     await ctx.response.send_message(f"読み上げ速度を {speed} に設定しました。")
 
 
+# キュー処理関数
+async def process_voice_queue(guild_id: int):
+    """
+    音声キューを処理する関数
+    guild_id: サーバーID
+    """
+    # 既に処理中の場合は何もしない
+    if processing_queues.get(guild_id, False):
+        return
+    
+    processing_queues[guild_id] = True
+    
+    guild = client.get_guild(guild_id)
+    if not guild or not guild.voice_client:
+        # ボイスクライアントがない場合はキューをクリアする
+        if guild_id in voice_queues:
+            voice_queues[guild_id].clear()
+        processing_queues[guild_id] = False
+        return
+    
+    voice_client = guild.voice_client
+    
+    try:
+        while guild_id in voice_queues and voice_queues[guild_id]:
+            # ボイスクライアントが接続されていないまたは再生中なら待機
+            if not voice_client.is_connected():
+                break
+            
+            if voice_client.is_playing():
+                # 再生中なら0.5秒待機して再チェック
+                await asyncio.sleep(0.5)
+                continue
+            
+            # キューから次のメッセージを取得
+            message_content, speaker_id, speak_speed = voice_queues[guild_id].popleft()
+            
+            # 音声データを取得して再生
+            wav_data = voicevox.get_voice(message_content, speaker_id=speaker_id, speak_speed=speak_speed)
+            
+            # 再生
+            voice_client.play(discord.FFmpegPCMAudio(wav_data, **VoiceBox.ffmpeg_options))
+            
+            # 再生が完了するまで待機する代わりに次のループへ
+            # 再生状態は次のループで確認する
+    except Exception as e:
+        print(f"キュー処理中にエラーが発生しました: {e}")
+    finally:
+        processing_queues[guild_id] = False
+
 @client.event
 async def on_message(message):
     server = message.channel.guild
     author = message.author
     channel = message.channel
 
-    # 自分のメッセージは無視
-    if author == client.user:
-        return
+    try:
+        # 自分のメッセージは無視
+        if author == client.user:
+            return
 
-    # ボイスチャンネルに接続していない場合は無視
-    if message.guild.voice_client is None:
-        # await channel.send("ボイスチャンネルに接続していません。")
-        return
-    
+        # ボイスチャンネルに接続していない場合は無視
+        if message.guild.voice_client is None:
+            return
 
-    # テキストチャンネルが読み上げ対象でない場合は無視
-    if server.id not in dict_db["server_settings"]:
-        # await channel.send("設定ファイルがありません。")
-        return
-    
-    if channel.id != dict_db["server_settings"][int(server.id)]["read_channel"]:
-        # await channel.send("読上げ対象のチャンネルではありません。")
-        return
-    
-    # ボイスチャンネルに接続している場合は、読み上げを行う
-    voice_client = message.guild.voice_client
+        # テキストチャンネルが読み上げ対象でない場合は無視
+        if server.id not in dict_db["server_settings"]:
+            return
 
-    # テキストを読み上げる
-    wav_data = voicevox.get_voice(
-        message.content, 
-        speaker_id = dict_db["user_settings"].get(author.id, {}).get("speaker_id", 3),
+        if channel.id != dict_db["server_settings"][int(server.id)]["read_channel"]:
+            return
+
+        # メッセージを整形
+        content = message.content
+        # 改行をスペースに変換
+        content = content.replace("\n", " ")
+
+        # URLを含む場合、URL部分を「URL省略」に変換
+        content = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', 'URL省略', content)
+
+        # 200文字以上の場合、200文字までに切り詰める
+        if len(content) > 200:
+            content = content[:200] + "以下省略"
+
+        # 話者IDと速度を取得
+        speaker_id = dict_db["user_settings"].get(author.id, {}).get("speaker_id", 3)
         speak_speed = dict_db["user_settings"].get(author.id, {}).get("speed", 1.0)
-    )
-    await voice_client.play(discord.FFmpegPCMAudio(wav_data, **VoiceBox.ffmpeg_options))
+        
+        # キューに追加
+        guild_id = message.guild.id
+        if guild_id not in voice_queues:
+            voice_queues[guild_id] = deque()
+        
+        voice_queues[guild_id].append((content, speaker_id, speak_speed))
+        
+        # キュー処理を開始
+        asyncio.create_task(process_voice_queue(guild_id))
 
+    except Exception as e:
+        print(e)
+        await channel.send("エラーが発生しました。")
 
 
 # voicechannelから全員が切断した時にvoicebotを切断する
