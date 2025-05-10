@@ -213,7 +213,7 @@ async def set_speed(ctx: discord.Interaction, speed: discord.app_commands.Range[
     await ctx.response.send_message(f"読み上げ速度を {speed} に設定しました。")
 
 
-# キュー処理関数
+# 音声の再生のキュー処理関数
 async def process_voice_queue(guild_id: int):
     """
     音声キューを処理する関数
@@ -289,12 +289,24 @@ async def on_message(message):
         # 改行をスペースに変換
         content = content.replace("\n", " ")
 
+        # 記号を除去
+        content = re.sub(r'[^\w\s]', '', content)
+
+        # "゛"を除去
+        content = content.replace("゛", "")
+        # "゜"を除去
+        content = content.replace("゜", "")
+
+        #おちんほを含む場合、メッセージを置き換える
+        if "おちんほ" in content:
+            content = content.replace("おちんほ", "おちんぽ")
+
         # URLを含む場合、URL部分を「URL省略」に変換
         content = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', 'URL省略', content)
 
-        # 200文字以上の場合、200文字までに切り詰める
-        if len(content) > 200:
-            content = content[:200] + "以下省略"
+        # 100文字以上の場合、100文字までに切り詰める
+        if len(content) > 100:
+            content = content[:100] + "以下省略"
 
         # 話者IDと速度を取得
         speaker_id = dict_db["user_settings"].get(author.id, {}).get("speaker_id", 3)
@@ -322,6 +334,19 @@ async def on_voice_state_update(member, before, after):
         if before.channel == member.guild.voice_client.channel and after.channel is not before.channel:
             if member.guild.voice_client is not None and len(member.guild.voice_client.channel.members) == 1:
                 await member.guild.voice_client.disconnect()
+                
+                # 読み上げ対象のチャンネルIDを取得
+                read_channel_id = dict_db["server_settings"].get(member.guild.id, {}).get("read_channel")
+                
+                # 読み上げ対象のチャンネルが設定されている場合はそのチャンネルに、
+                # 設定されていない場合は最初のテキストチャンネルにメッセージを送信
+                if read_channel_id:
+                    read_channel = member.guild.get_channel(read_channel_id)
+                    if read_channel:
+                        await read_channel.send("全員が退出したため、切断しました。")
+                        return
+                
+                # 読み上げ対象が見つからない場合は最初のテキストチャンネルに送信（フォールバック）
                 await member.guild.text_channels[0].send("全員が退出したため、切断しました。")
 
 @client.event
