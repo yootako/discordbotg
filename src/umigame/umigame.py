@@ -33,12 +33,13 @@ class UmigameGame:
         
 
 
-    async def generate_problem(self, daizai: str = "カテゴリを指定しない") -> str:
-        pronpt1 = "ありふれておらず理不尽でなくとても良質なうみがめのスープの問題を1つ出題して。"
+    async def generate_problem(self, odai: str = "指定しない") -> str:
+        pronpt1 = "新規で作成された良質なうみがめのスープの問題を1つ出題する。答えが突拍子がないものではなく腑に落ちるような内容する。"
         pronpt2 = "あなたはうみがめのスープの出題者。知られていない史実のうんちくを題材として、お～となるような良質なうみがめのスープの問題を1つ出題して。"
         prompt = (
             f"{pronpt1}"
-            "問題文は短めにして。回答の足がかりのヒントも作成して、ヒントは数字が大きくなるについれて確信に近づいてほしい、返事は下記のフォーマットに従って。" \
+            f"お台は「{odai}」"
+            "問題文は長くならないように。回答の足がかりのヒントも作成して、ヒントは数字が大きくなるについれて確信に近づいてほしい、返事は下記のフォーマットに従って。" \
             "<problem>問題文</problem>\n"\
             "<reason>理由文</reason>\n"\
             "<hint1>ヒント1</hint1>\n"\
@@ -50,12 +51,12 @@ class UmigameGame:
         model_name = "gemini-2.5-pro-exp-03-25"
 
         mondai = await self.gemini_generate(prompt, model_name)
-        # 問題文と理由文を正規表現を使って分割（柔軟に対応）
+        # 問題文と理由文を分割
         import re
         # <problem>...</problem> と <reason>...</reason> タグ形式で抽出
         match = re.search(r"<problem>(.*?)</problem>.*?<reason>(.*?)</reason>", mondai, re.DOTALL | re.IGNORECASE)
 
-        # <hint1>...</hint1> タグ形式で抽出（リストで管理）
+        # <hint1>...</hint1> タグ形式で抽出
         for i in range(1, 6):
             hint_match = re.search(rf"<hint{i}>(.*?)</hint{i}>", mondai, re.DOTALL | re.IGNORECASE)
             if hint_match:
@@ -82,7 +83,8 @@ class UmigameGame:
         """
         correct = False
         prompt = f"""
-                あなたはうみがめのスープの出題者。質問と解説を照らし合わせて判定してください。正解の場合は正解とだけ返す、それ以外ははい、いいえ、わからないのいずれかで返す\n \
+                あなたはうみがめのスープの出題者。質問と解説を照らし合わせて「正解」「はい」「おおむねはい」「おおむねいいえ」「いいえ」「わからない」のいずれかに判定する。返事は必ず1単語で返す。\n \
+                問題: {self.problem}
                 問題の解説: {self.reason}
                 質問: {question}
                 """
@@ -95,6 +97,10 @@ class UmigameGame:
             answer = "正解"
         elif "はい" in answer:
             answer = "はい"
+        elif "おおむねはい" in answer:
+            answer = "おおむねはい"
+        elif "おおむねいいえ" in answer:
+            answer = "おおむねいいえ"
         elif "いいえ" in answer:
             answer = "いいえ"
         elif "わからない" in answer:
@@ -114,15 +120,15 @@ def setup(tree: discord.app_commands.CommandTree, client: discord.Client):
         name="umigame_start",
         description="うみがめのスープの新しい問題を出題します。"
     )
-    async def umigame_start(ctx: discord.Interaction):
+    async def umigame_start(ctx: discord.Interaction, odai: str = ""):
         guild_id = ctx.guild.id
-        await ctx.response.send_message("問題を生成中です。しばらくお待ちください。")
+        await ctx.response.send_message(f"{odai}のうみがめのスープを出題します。しばらくお待ち下さい")
         
-        game = UmigameGame()  # ここでインスタンス化
+        game = UmigameGame()
 
         # 問題を生成する
         try:
-            question = await game.generate_problem()
+            question = await game.generate_problem(odai)
         except Exception as e:
             await ctx.channel.send(f"問題生成に失敗しました: {e}")
             return
